@@ -1,5 +1,4 @@
 # CMPT310
-**CMPT 310 project**
 
 **FOR TESTERS:**
 Open Chrome -> go to ```chrome://extensions/``` -> toggle developer mode "ON"
