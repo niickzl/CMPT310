@@ -1,6 +1,11 @@
 # CMPT310
 CMPT 310 project
 
+FOR TESTERS:
+Open Chrome -> go to ```chrome://extensions/``` -> toggle developer mode "ON"
+-> Click on "Load unpacked" -> Select the local `extension` folder.
+
+FOR MODERATORS:
 Run ```python -m venv .venv``` in terminal.
 
 (RUN THIS EVERYTIME YOU WORK ON THIS)
