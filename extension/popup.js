@@ -45,7 +45,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Analyze button ─────────────────────────────────────────────────────────
   analyzeBtn.addEventListener('click', async () => {
     if (!currentUrl) return;
-
     setLoading(true);
 
     try {
@@ -63,12 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await response.json();
       console.log('Analysis result:', data);
 
-      // Load comments into paginator
+      renderSentiment(data.sentiment_summary);
+
       allComments = data.comments;
       currentPage = 0;
       renderPage(currentPage);
-
-      // TODO: renderResults(data) for sentiment scores once ready
 
     } catch (err) {
       console.error('Analyze failed:', err);
@@ -81,56 +79,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Pagination buttons ─────────────────────────────────────────────────────
   document.getElementById('prevBtn').addEventListener('click', () => {
-    if (currentPage > 0) {
-      currentPage--;
-      renderPage(currentPage);
-    }
+    if (currentPage > 0) { currentPage--; renderPage(currentPage); }
   });
 
   document.getElementById('nextBtn').addEventListener('click', () => {
     const totalPages = Math.ceil(allComments.length / PER_PAGE);
-    if (currentPage < totalPages - 1) {
-      currentPage++;
-      renderPage(currentPage);
-    }
+    if (currentPage < totalPages - 1) { currentPage++; renderPage(currentPage); }
   });
 });
 
-// ── Render a page of comments ────────────────────────────────────────────────
+// ── Render sentiment summary cards + bar ──────────────────────────────────────
+function renderSentiment(summary) {
+  document.getElementById('posVal').textContent = `${summary.positive_pct}%`;
+  document.getElementById('negVal').textContent = `${summary.negative_pct}%`;
+
+  // Reset then animate bar so CSS transition fires
+  const bar = document.getElementById('sentimentBar');
+  bar.style.width = '0%';
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bar.style.width = `${summary.positive_pct}%`;
+    });
+  });
+}
+
+// ── Render a page of comments ─────────────────────────────────────────────────
 function renderPage(page) {
-  const list      = document.getElementById('commentsList');
-  const prevBtn   = document.getElementById('prevBtn');
-  const nextBtn   = document.getElementById('nextBtn');
-  const pageInfo  = document.getElementById('pageInfo');
-  const pageDots  = document.getElementById('pageDots');
+  const list     = document.getElementById('commentsList');
+  const prevBtn  = document.getElementById('prevBtn');
+  const nextBtn  = document.getElementById('nextBtn');
+  const pageInfo = document.getElementById('pageInfo');
+  const pageDots = document.getElementById('pageDots');
 
   const totalPages = Math.ceil(allComments.length / PER_PAGE);
   const start = page * PER_PAGE;
   const slice = allComments.slice(start, start + PER_PAGE);
 
-  // Render comment items
   list.innerHTML = '';
+
   if (slice.length === 0) {
     list.innerHTML = '<div class="comments-empty">No comments found.</div>';
   } else {
-    slice.forEach((text) => {
+    slice.forEach((comment) => {
       const item = document.createElement('div');
       item.className = 'comment-item';
-      item.textContent = text;
+
+      const badge = document.createElement('span');
+      badge.className = `sentiment-badge ${comment.sentiment}`;
+      badge.textContent = comment.sentiment;
+
+      const text = document.createElement('span');
+      text.className = 'comment-text';
+      text.textContent = comment.text;
+
+      item.appendChild(badge);
+      item.appendChild(text);
       list.appendChild(item);
     });
-    // Scroll back to top on page change
     list.scrollTop = 0;
   }
 
-  // Page info label
   pageInfo.textContent = `${page + 1} / ${totalPages}`;
-
-  // Prev / next state
   prevBtn.disabled = page === 0;
   nextBtn.disabled = page >= totalPages - 1;
 
-  // Dot indicators (max 7 visible dots)
+  // Dot indicators (max 7)
   pageDots.innerHTML = '';
   const maxDots = Math.min(totalPages, 7);
   for (let i = 0; i < maxDots; i++) {
@@ -140,7 +153,7 @@ function renderPage(page) {
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function disableButton() {
   const btn = document.getElementById('analyzeBtn');
   btn.disabled = true;

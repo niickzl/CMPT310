@@ -358,3 +358,40 @@ body {
   color: var(--muted);
   letter-spacing: 0.02em;
 }
+/* ── Per-comment sentiment badge ─────────────────────────────────────────── */
+.comment-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sentiment-badge {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  align-self: flex-start;
+}
+
+.sentiment-badge.positive {
+  background: rgba(0, 230, 118, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(0, 230, 118, 0.25);
+}
+
+.sentiment-badge.negative {
+  background: rgba(255, 59, 59, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(255, 59, 59, 0.25);
+}
+
+.comment-text {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+  word-break: break-word;
+}

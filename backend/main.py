@@ -1,8 +1,8 @@
 """FastAPI backend for YT Comment Analyzer.
 
-Exposes a single POST /analyze endpoint that accepts a YouTube URL,
-fetches comments via the YouTube Data API, preprocesses them, and
-returns the cleaned comment list ready for NLP/clustering.
+Exposes:
+    GET  /health   — liveness check
+    POST /analyze  — fetch, preprocess, and sentiment-score YouTube comments
 """
 
 import logging
@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from model import SentimentResult, get_or_train, predict, summarize
 from preprocess import clean_batch
 from youtube import (
     CommentsDisabledError,
@@ -29,29 +30,67 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="YT Comment Analyzer API")
 
-# Allow requests from the Chrome extension (chrome-extension://* origin)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["POST"],
+    allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
 
+# Pre-load model once at startup so the first request isn't slow
+_pipeline = None
+
+
+@app.on_event("startup")
+def load_model():
+    global _pipeline
+    logger.info("Loading sentiment model...")
+    _pipeline = get_or_train()
+    logger.info("Sentiment model ready.")
+
+
+# ── Schemas ────────────────────────────────────────────────────────────────────
 
 class AnalyzeRequest(BaseModel):
     url: str
     max_results: int = 100
 
 
+class CommentResult(BaseModel):
+    author: str
+    text: str            # original raw text shown in UI
+    cleaned_text: str    # preprocessed text fed to model
+    likes: int
+    published_at: str
+    sentiment: str       # "positive" | "negative"
+    confidence: float    # 0.0 – 1.0
+
+
+class SentimentSummary(BaseModel):
+    positive_count: int
+    negative_count: int
+    positive_pct: float
+    negative_pct: float
+    avg_confidence: float
+
+
 class AnalyzeResponse(BaseModel):
     video_id: str
-    total_fetched: int
-    comments: list[str]  # cleaned comment texts
+    comment_count: int
+    sentiment_summary: SentimentSummary
+    comments: list[CommentResult]
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
-    """Fetch and preprocess comments for a YouTube video URL."""
+    """Fetch, preprocess, and sentiment-score comments for a YouTube video."""
 
     api_key = os.getenv("YOUTUBE_API_KEY")
     if not api_key:
@@ -60,13 +99,13 @@ def analyze(req: AnalyzeRequest):
             detail="YOUTUBE_API_KEY is not set in the environment.",
         )
 
-    # 1. Extract video ID
+    # 1. Extract video ID from URL
     try:
         video_id = extract_video_id(req.url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # 2. Fetch comments from YouTube Data API
+    # 2. Fetch raw comments from YouTube Data API
     try:
         raw_comments = fetch_comments(
             video_id=video_id,
@@ -83,14 +122,38 @@ def analyze(req: AnalyzeRequest):
         logger.exception("Unexpected error fetching comments")
         raise HTTPException(status_code=500, detail=str(e))
 
-    # 3. Preprocess — clean raw text for NLP pipeline
-    texts = [c["text"] for c in raw_comments]
-    cleaned = clean_batch(texts)
+    # 3. Preprocess — strip URLs, emojis, excess whitespace
+    raw_texts = [c["text"] for c in raw_comments]
+    cleaned_texts = clean_batch(raw_texts)
 
-    logger.info("Returning %d cleaned comments for video %s", len(cleaned), video_id)
+    # 4. Run baseline sentiment model
+    sentiment_results: list[SentimentResult] = predict(cleaned_texts, _pipeline)
+
+    # 5. Assemble per-comment results
+    comments = [
+        CommentResult(
+            author=raw["author"],
+            text=raw["text"],
+            cleaned_text=cleaned,
+            likes=raw["likes"],
+            published_at=raw["published_at"],
+            sentiment=result.label,
+            confidence=result.score,
+        )
+        for raw, cleaned, result in zip(raw_comments, cleaned_texts, sentiment_results)
+    ]
+
+    # 6. Aggregate sentiment summary for the dashboard
+    summary = SentimentSummary(**summarize(sentiment_results))
+
+    logger.info(
+        "video=%s comments=%d positive=%.1f%% negative=%.1f%%",
+        video_id, len(comments), summary.positive_pct, summary.negative_pct,
+    )
 
     return AnalyzeResponse(
         video_id=video_id,
-        total_fetched=len(cleaned),
-        comments=cleaned,
+        comment_count=len(comments),
+        sentiment_summary=summary,
+        comments=comments,
     )
