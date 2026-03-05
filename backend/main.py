@@ -42,11 +42,23 @@ class AnalyzeRequest(BaseModel):
     url: str
     max_results: int = 100
 
+      
+class CommentItem(BaseModel):
+    author: str
+    text: str
+    cleaned_text: str
+    likes: int
+    published_at: str
 
+      
 class AnalyzeResponse(BaseModel):
     video_id: str
     total_fetched: int
-    comments: list[str]  # cleaned comment texts
+    comments: list[CommentItem]
+      
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
@@ -79,18 +91,22 @@ def analyze(req: AnalyzeRequest):
         raise HTTPException(status_code=403, detail=str(e))
     except QuotaExceededError as e:
         raise HTTPException(status_code=429, detail=str(e))
-    except Exception as e:
-        logger.exception("Unexpected error fetching comments")
-        raise HTTPException(status_code=500, detail=str(e))
 
-    # 3. Preprocess — clean raw text for NLP pipeline
-    texts = [c["text"] for c in raw_comments]
-    cleaned = clean_batch(texts)
+    cleaned_texts = clean_batch([c["text"] for c in raw_comments])
 
-    logger.info("Returning %d cleaned comments for video %s", len(cleaned), video_id)
+    comments = [
+        {
+            "author": raw["author"],
+            "text": raw["text"],
+            "cleaned_text": cleaned,
+            "likes": raw["likes"],
+            "published_at": raw["published_at"],
+        }
+        for raw, cleaned in zip(raw_comments, cleaned_texts)
+    ]
 
-    return AnalyzeResponse(
-        video_id=video_id,
-        total_fetched=len(cleaned),
-        comments=cleaned,
-    )
+    return {
+        "video_id": video_id,
+        "comment_count": len(comments),
+        "comments": comments,
+    }
